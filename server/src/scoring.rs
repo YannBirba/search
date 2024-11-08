@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use crate::scraper::SearchResult;
-use itertools::Itertools;
 use strsim::normalized_levenshtein;
 
 pub struct ResultScorer;

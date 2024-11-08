@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use redis::aio::MultiplexedConnection;
 use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
 use bb8::Pool;
