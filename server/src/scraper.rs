@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 #[derive(Debug, Serialize, Clone, Deserialize)]
+pub struct Breadcrumb {
+    pub text: String,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone, Deserialize)]
 pub struct SearchResult {
     pub title: String,
     pub link: String,
@@ -13,6 +19,9 @@ pub struct SearchResult {
     pub source: String,
     pub score: f64,
     pub engine: String,
+    pub favicon_url: Option<String>,
+    pub site_name: Option<String>,
+    pub breadcrumbs: Vec<Breadcrumb>,
 }
 
 const USER_AGENTS: &[&str] = &[
@@ -60,6 +69,53 @@ pub struct GoogleScraper;
 impl GoogleScraper {
     pub fn new() -> Self {
         Self
+    }
+
+    fn extract_favicon(&self, div: &scraper::ElementRef) -> Option<String> {
+        let favicon_selector = Selector::parse("img.XNo5Ab").unwrap();
+        div.select(&favicon_selector)
+            .next()
+            .and_then(|img| img.value().attr("src").map(String::from))
+            .or_else(|| {
+                // Fallback: construire l'URL du favicon à partir du domaine
+                let link_selector = Selector::parse("a").unwrap();
+                div.select(&link_selector)
+                    .next()
+                    .and_then(|a| a.value().attr("href"))
+                    .and_then(|url| url::Url::parse(url).ok())
+                    .map(|url| {
+                        format!(
+                            "https://www.google.com/s2/favicons?domain={}",
+                            url.host_str().unwrap_or_default()
+                        )
+                    })
+            })
+    }
+
+    fn extract_site_info(&self, div: &scraper::ElementRef) -> (Option<String>, Vec<Breadcrumb>) {
+        let cite_selector = Selector::parse("cite.qLRx3b").unwrap();
+        let breadcrumbs_selector = Selector::parse("span.VuuXrf").unwrap();
+
+        let site_element = div.select(&cite_selector).next();
+
+        let site_name = site_element
+            .and_then(|cite| cite.select(&breadcrumbs_selector).next())
+            .map(|span| span.text().collect::<String>());
+
+        let breadcrumbs = site_element
+            .map(|cite| {
+                cite.text()
+                    .collect::<String>()
+                    .split('›')
+                    .map(|part| Breadcrumb {
+                        text: part.trim().to_string(),
+                        url: None, // Google ne fournit pas les URLs individuelles des breadcrumbs
+                    })
+                    .collect()
+            })
+            .unwrap_or_else(|| vec![]);
+
+        (site_name, breadcrumbs)
     }
 }
 
@@ -126,6 +182,9 @@ impl SearchEngine for GoogleScraper {
                     .map(|s| s.text().collect::<String>())
                     .unwrap_or_default();
 
+                let favicon_url = self.extract_favicon(&div);
+                let (site_name, breadcrumbs) = self.extract_site_info(&div);
+
                 Some(SearchResult {
                     title,
                     link,
@@ -133,6 +192,9 @@ impl SearchEngine for GoogleScraper {
                     source: self.name().to_string(),
                     score: 0.0,
                     engine: self.name().to_string(),
+                    favicon_url,
+                    site_name,
+                    breadcrumbs,
                 })
             })
             .collect()
@@ -144,6 +206,43 @@ pub struct DuckDuckGoScraper;
 impl DuckDuckGoScraper {
     pub fn new() -> Self {
         Self
+    }
+
+    fn extract_favicon(&self, result: &scraper::ElementRef) -> Option<String> {
+        let url = result
+            .select(&Selector::parse(".result__url").unwrap())
+            .next()
+            .map(|url| url.text().collect::<String>())?;
+
+        // DuckDuckGo n'affiche pas directement les favicons, on utilise donc un service tiers
+        Some(format!("https://www.google.com/s2/favicons?domain={}", url))
+    }
+
+    fn extract_site_info(&self, result: &scraper::ElementRef) -> (Option<String>, Vec<Breadcrumb>) {
+        let url_selector = Selector::parse(".result__url").unwrap();
+
+        let url_text = result
+            .select(&url_selector)
+            .next()
+            .map(|url| url.text().collect::<String>());
+
+        let site_name = url_text
+            .clone()
+            .map(|url| url.split('/').next().unwrap_or_default().to_string());
+
+        let breadcrumbs = url_text
+            .map(|url| {
+                url.split('/')
+                    .filter(|part| !part.is_empty())
+                    .map(|part| Breadcrumb {
+                        text: part.to_string(),
+                        url: None,
+                    })
+                    .collect()
+            })
+            .unwrap();
+
+        (site_name, breadcrumbs)
     }
 }
 
@@ -203,13 +302,22 @@ impl SearchEngine for DuckDuckGoScraper {
                     .map(|s| s.text().collect::<String>())
                     .unwrap_or_default();
 
+                let favicon_url = self.extract_favicon(&result);
+                let (site_name, breadcrumbs) = self.extract_site_info(&result);
+
                 Some(SearchResult {
                     title,
-                    link,
+                    link: format!(
+                        "https://{}",
+                        link.trim_start_matches(|c: char| !c.is_alphanumeric())
+                    ),
                     snippet,
                     source: self.name().to_string(),
                     score: 0.0,
                     engine: self.name().to_string(),
+                    favicon_url,
+                    site_name,
+                    breadcrumbs,
                 })
             })
             .collect()

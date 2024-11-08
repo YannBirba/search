@@ -1,0 +1,114 @@
+/* 1. Use a more-intuitive box-sizing model */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+/* 2. Remove default margin */
+* {
+	margin: 0;
+}
+
+body {
+	/* 3. Add accessible line-height */
+	line-height: 1.5;
+	/* 4. Improve text rendering */
+	-webkit-font-smoothing: antialiased;
+}
+
+/* 5. Improve media defaults */
+img,
+picture,
+video,
+canvas,
+svg {
+	display: block;
+	max-width: 100%;
+}
+
+/* 6. Inherit fonts for form controls */
+input,
+button,
+textarea,
+select {
+	font: inherit;
+}
+
+/* 7. Avoid text overflows */
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	overflow-wrap: break-word;
+}
+
+/* 8. Improve line wrapping */
+p {
+	text-wrap: pretty;
+}
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	text-wrap: balance;
+}
+
+/*
+  9. Create a root stacking context
+*/
+#root,
+#__next {
+	isolation: isolate;
+}
+
+ul,
+li {
+	all: unset;
+}
+
+a {
+	color: #084887;
+}
+
+a:visited {
+	color: #444;
+}
+* {
+	font-family: "Inter", sans-serif;
+}
+
+li *{
+	user-select: text !important;
+}
+
+li:has(a) {
+	transition: background-color 0.3s ease-in-out;
+}
+
+li:has(a:is(:hover, :focus)) {
+	text-decoration: underline;
+	background-color: rgba(0, 0, 0, 0.05);
+}
+
+html {
+	scroll-behavior: smooth;
+	font-size: 100%;
+}
+
+body {
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	text-rendering: optimizeLegibility;
+	font-size: 1em;
+}
+
+* {
+	user-select: none;
+	-webkit-user-drag: none;
+}

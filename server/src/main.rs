@@ -172,6 +172,9 @@ async fn main() {
         }
     };
 
+    // Clear cache
+    cache.flush().await.unwrap();
+
     // Initialize SearchService and wrap it in AppState
     let search_service = Arc::new(SearchService::new(cache));
     let app_state = AppState { search_service };

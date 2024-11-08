@@ -12,6 +12,7 @@ pub trait Cache: Send + Sync {
         value: &T,
         ttl: Duration,
     ) -> Result<(), redis::RedisError>;
+    async fn flush(&self) -> Result<(), redis::RedisError>;
 }
 
 pub struct RedisCache {
@@ -59,6 +60,13 @@ impl Cache for RedisCache {
             .arg(key)
             .arg(ttl.as_secs())
             .arg(serialized)
+            .query_async(&mut conn)
+            .await
+    }
+
+    async fn flush(&self) -> Result<(), redis::RedisError> {
+        let mut conn = self.manager.clone();
+        redis::cmd("FLUSHDB")
             .query_async(&mut conn)
             .await
     }
