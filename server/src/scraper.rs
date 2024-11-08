@@ -24,6 +24,77 @@ pub struct SearchResult {
     pub breadcrumbs: Vec<Breadcrumb>,
 }
 
+impl PartialOrd for SearchResult {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.score.partial_cmp(&other.score)
+    }
+}
+
+impl PartialEq for SearchResult {
+    fn eq(&self, other: &Self) -> bool {
+        self.score == other.score
+    }
+}
+
+impl Eq for SearchResult {}
+
+impl Ord for SearchResult {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.score.partial_cmp(&other.score).unwrap()
+    }
+
+    fn max(self, other: Self) -> Self
+    where
+        Self: Sized,
+    {
+        std::cmp::max_by(self, other, Ord::cmp)
+    }
+
+    fn min(self, other: Self) -> Self
+    where
+        Self: Sized,
+    {
+        std::cmp::min_by(self, other, Ord::cmp)
+    }
+
+    fn clamp(self, min: Self, max: Self) -> Self
+    where
+        Self: Sized,
+        Self: PartialOrd,
+    {
+        assert!(min <= max);
+        if self < min {
+            min
+        } else if self > max {
+            max
+        } else {
+            self
+        }
+    }
+}
+
+struct SearchResultWrapper(SearchResult);
+
+impl PartialOrd for SearchResultWrapper {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SearchResultWrapper {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.score.partial_cmp(&other.0.score).unwrap()
+    }
+}
+
+impl PartialEq for SearchResultWrapper {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.score == other.0.score
+    }
+}
+
+impl Eq for SearchResultWrapper {}
+
 const USER_AGENTS: &[&str] = &[
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -64,11 +135,32 @@ pub trait SearchEngine: Send + Sync {
     fn parse_results(&self, html: &str) -> Vec<SearchResult>;
 }
 
-pub struct GoogleScraper;
+pub struct GoogleScraper {
+    client: reqwest::Client,
+}
 
 impl GoogleScraper {
     pub fn new() -> Self {
-        Self
+        let client = reqwest::Client::builder()
+            .user_agent(*USER_AGENTS.choose(&mut rand::thread_rng()).unwrap())
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap();
+
+        Self { client }
+    }
+
+    async fn fetch_html(&self, url: &str) -> Result<String, SearchError> {
+        Ok(self
+            .client
+            .get(url)
+            .header("Accept", "text/html")
+            .header("Accept-Language", "fr-FR,fr;q=0.9")
+            .send()
+            .await?
+            .text()
+            .await?)
     }
 
     fn extract_favicon(&self, div: &scraper::ElementRef) -> Option<String> {
@@ -202,13 +294,33 @@ impl SearchEngine for GoogleScraper {
     }
 }
 
-pub struct DuckDuckGoScraper;
+pub struct DuckDuckGoScraper {
+    client: reqwest::Client,
+}
 
 impl DuckDuckGoScraper {
     pub fn new() -> Self {
-        Self
+        let client = reqwest::Client::builder()
+            .user_agent(*USER_AGENTS.choose(&mut rand::thread_rng()).unwrap())
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap();
+
+        Self { client }
     }
 
+    async fn fetch_html(&self, url: &str) -> Result<String, SearchError> {
+        Ok(self
+            .client
+            .get(url)
+            .header("Accept", "text/html")
+            .header("Accept-Language", "fr-FR,fr;q=0.9")
+            .send()
+            .await?
+            .text()
+            .await?)
+    }
     fn extract_favicon(&self, result: &scraper::ElementRef) -> Option<String> {
         let url = result
             .select(&Selector::parse(".result__url").unwrap())

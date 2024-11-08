@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::scraper::SearchResult;
 use itertools::Itertools;
 use strsim::normalized_levenshtein;
@@ -53,10 +55,21 @@ impl ResultScorer {
 
     // Remove duplicate results based on URL similarity
     pub fn remove_duplicates(results: Vec<SearchResult>) -> Vec<SearchResult> {
+        let mut seen = HashSet::new();
+
         results
             .into_iter()
-            // .sorted_by(|a, b| b.score.partial_cmp(&a.score).unwrap())
-            .dedup_by(|a, b| Self::is_duplicate(&a.link, &b.link))
+            .filter(|result| {
+                let is_duplicate = seen
+                    .iter()
+                    .any(|&ref seen_result: &String| Self::is_duplicate(&result.link, seen_result));
+
+                if !is_duplicate {
+                    seen.insert(result.link.clone());
+                }
+
+                !is_duplicate
+            })
             .collect()
     }
 

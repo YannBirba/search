@@ -2,6 +2,9 @@ use async_trait::async_trait;
 use redis::aio::MultiplexedConnection;
 use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
+use bb8::Pool;
+use bb8_redis::RedisConnectionManager;
+use bb8::RunError;
 
 #[async_trait]
 pub trait Cache: Send + Sync {
@@ -16,26 +19,30 @@ pub trait Cache: Send + Sync {
 }
 
 pub struct RedisCache {
-    client: redis::Client,
-    manager: MultiplexedConnection,
+    pool: Pool<RedisConnectionManager>,
 }
 
 impl RedisCache {
     pub async fn new(redis_url: &str) -> Result<Self, redis::RedisError> {
-        let client = redis::Client::open(redis_url)?;
-        let manager = client.get_multiplexed_async_connection().await?;
-
-        Ok(Self { client, manager })
+        let manager = RedisConnectionManager::new(redis_url)?;
+        let pool = Pool::builder().build(manager).await?;
+        Ok(Self { pool })
     }
 }
 
 #[async_trait]
 impl Cache for RedisCache {
     async fn get<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
-        let mut conn = self.manager.clone();
+        let mut conn = self.pool.get().await.map_err(|e| match e {
+            RunError::User(e) => e,
+            RunError::TimedOut => redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Connection timed out",
+            )),
+        }).ok()?;
         let result: Option<String> = redis::cmd("GET")
             .arg(key)
-            .query_async(&mut conn)
+            .query_async(&mut *conn)
             .await
             .ok()?;
 
@@ -48,7 +55,13 @@ impl Cache for RedisCache {
         value: &T,
         ttl: Duration,
     ) -> Result<(), redis::RedisError> {
-        let mut conn = self.manager.clone();
+        let mut conn = self.pool.get().await.map_err(|e| match e {
+            RunError::User(e) => e,
+            RunError::TimedOut => redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Connection timed out",
+            )),
+        })?;
         let serialized = serde_json::to_string(value).map_err(|_| {
             redis::RedisError::from((
                 redis::ErrorKind::InvalidClientConfig,
@@ -60,12 +73,18 @@ impl Cache for RedisCache {
             .arg(key)
             .arg(ttl.as_secs())
             .arg(serialized)
-            .query_async(&mut conn)
+            .query_async(&mut *conn)
             .await
     }
 
     async fn flush(&self) -> Result<(), redis::RedisError> {
-        let mut conn = self.manager.clone();
-        redis::cmd("FLUSHDB").query_async(&mut conn).await
+        let mut conn = self.pool.get().await.map_err(|e| match e {
+            RunError::User(e) => e,
+            RunError::TimedOut => redis::RedisError::from((
+                redis::ErrorKind::IoError,
+                "Connection timed out",
+            )),
+        })?;
+        redis::cmd("FLUSHDB").query_async(&mut *conn).await
     }
 }

@@ -3,9 +3,8 @@ use axum::extract::FromRequest;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use axum::{routing::get, Router};
-use futures::future::join_all;
+use futures::stream::{FuturesUnordered, StreamExt};
 use search::cache::{Cache, RedisCache};
 use search::metrics::SearchMetrics;
 use search::rate_limiter::RateLimiter;
@@ -13,9 +12,10 @@ use search::scoring::ResultScorer;
 use search::scraper::SearchResult;
 use search::scraper::{DuckDuckGoScraper, GoogleScraper, SearchEngine};
 use serde::{Deserialize, Serialize};
+use std::collections::BinaryHeap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 
@@ -78,20 +78,30 @@ impl SearchService {
         }
         SearchMetrics::record_cache_miss();
 
-        // Perform parallel searches across all engines
-        let search_futures = self.engines.iter().map(|engine| {
-            let start_time = Instant::now();
-            let rate_limiter = Arc::clone(&self.rate_limiter);
+        let mut futures = FuturesUnordered::new();
+        for engine in &self.engines {
+            let query = query.to_string();
+            let page = page.clone();
+            let date_range = date_range.map(|s| s.to_string());
+            let region = region.map(|s| s.to_string());
+            let language = language.map(|s| s.to_string());
+            let rate_limiter = &self.rate_limiter;
 
-            async move {
+            futures.push(async move {
                 // Check rate limit
                 if !rate_limiter.check_rate_limit(engine.name()).await {
                     return Vec::new();
                 }
 
                 // Perform search with additional parameters if supported
-                let results = match engine
-                    .search(query, page.unwrap_or(1), date_range, region, language)
+                match engine
+                    .search(
+                        &query,
+                        page.unwrap_or(1),
+                        date_range.as_deref(),
+                        region.as_deref(),
+                        language.as_deref(),
+                    )
                     .await
                 {
                     Ok(results) => {
@@ -102,31 +112,30 @@ impl SearchService {
                         SearchMetrics::record_search_result(engine.name(), false);
                         Vec::new()
                     }
-                };
+                }
+            });
+        }
 
-                // Record metrics
-                SearchMetrics::record_search_time(engine.name(), start_time.elapsed());
-                SearchMetrics::record_results_count(engine.name(), results.len() as u64);
-
-                results
-            }
-        });
-
-        // Collect and process results
-        let mut all_results: Vec<SearchResult> = join_all(search_futures)
-            .await
-            .into_iter()
-            .flatten()
-            .collect();
+        let mut all_results = Vec::new();
+        while let Some(results) = futures.next().await {
+            all_results.extend(results);
+        }
 
         // Score and sort results
         for result in &mut all_results {
             result.score = ResultScorer::score_result(result, query);
         }
-        all_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+
+        // Use a BinaryHeap to sort results by score
+        let mut heap = BinaryHeap::new();
+        for result in all_results {
+            heap.push(result);
+        }
+
+        let final_results: Vec<_> = heap.into_sorted_vec();
 
         // Remove duplicates
-        let final_results = ResultScorer::remove_duplicates(all_results);
+        let final_results = ResultScorer::remove_duplicates(final_results);
 
         // Cache results
         let _ = self
@@ -262,25 +271,10 @@ impl From<time_library::Error> for AppError {
 // Imagine this is some third party library that we're using. It sometimes returns errors which we
 // want to log.
 mod time_library {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
     use serde::Serialize;
 
     #[derive(Serialize, Clone)]
     pub struct Timestamp(u64);
-
-    impl Timestamp {
-        pub fn now() -> Result<Self, Error> {
-            static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-            // Fail on every third call just to simulate errors
-            if COUNTER.fetch_add(1, Ordering::SeqCst) % 3 == 0 {
-                Err(Error::FailedToGetTime)
-            } else {
-                Ok(Self(1337))
-            }
-        }
-    }
 
     #[derive(Debug)]
     pub enum Error {

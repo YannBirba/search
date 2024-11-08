@@ -99,6 +99,7 @@ li:has(a:is(:hover, :focus)) {
 html {
 	scroll-behavior: smooth;
 	font-size: 100%;
+	scrollbar-gutter: stable;
 }
 
 body {
