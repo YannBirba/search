@@ -304,16 +304,24 @@ function App() {
 													style={{
 														display: "flex",
 														flexDirection: "column",
-														fontSize: "0.75rem",
 													}}
 												>
-													{item.site_name && <p>{item.site_name}</p>}
+													{item.site_name && (
+														<p
+															style={{
+																fontSize: "0.9rem",
+															}}
+														>
+															{item.site_name}
+														</p>
+													)}
 													{item.breadcrumbs && item.breadcrumbs.length > 0 && (
 														<ul
 															style={{
 																display: "flex",
 																gap: "0.15rem",
 																listStyleType: "none",
+																fontSize: "0.75rem",
 															}}
 														>
 															{item.breadcrumbs.map((breadcrumb) => (
@@ -330,7 +338,7 @@ function App() {
 										</div>
 										<p
 											style={{
-												fontSize: "1.4rem",
+												fontSize: "1.35rem",
 											}}
 										>
 											{item.title}

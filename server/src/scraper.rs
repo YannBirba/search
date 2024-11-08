@@ -93,23 +93,24 @@ impl GoogleScraper {
     }
 
     fn extract_site_info(&self, div: &scraper::ElementRef) -> (Option<String>, Vec<Breadcrumb>) {
-        let cite_selector = Selector::parse("cite.qLRx3b").unwrap();
-        let breadcrumbs_selector = Selector::parse("span.VuuXrf").unwrap();
+        let site_name_selector = Selector::parse("span.VuuXrf").unwrap();
+        let breadcrumbs_selector = Selector::parse("cite.qLRx3b").unwrap();
 
-        let site_element = div.select(&cite_selector).next();
-
-        let site_name = site_element
-            .and_then(|cite| cite.select(&breadcrumbs_selector).next())
+        let site_name = div
+            .select(&site_name_selector)
+            .next()
             .map(|span| span.text().collect::<String>());
 
-        let breadcrumbs = site_element
+        let breadcrumbs = div
+            .select(&breadcrumbs_selector)
+            .next()
             .map(|cite| {
                 cite.text()
                     .collect::<String>()
                     .split('›')
                     .map(|part| Breadcrumb {
                         text: part.trim().to_string(),
-                        url: None, // Google ne fournit pas les URLs individuelles des breadcrumbs
+                        url: None,
                     })
                     .collect()
             })
