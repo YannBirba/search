@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use redis::aio::MultiplexedConnection;
-use serde::{de::DeserializeOwned,  Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use std::time::Duration;
 
 #[async_trait]
@@ -66,8 +66,6 @@ impl Cache for RedisCache {
 
     async fn flush(&self) -> Result<(), redis::RedisError> {
         let mut conn = self.manager.clone();
-        redis::cmd("FLUSHDB")
-            .query_async(&mut conn)
-            .await
+        redis::cmd("FLUSHDB").query_async(&mut conn).await
     }
 }
