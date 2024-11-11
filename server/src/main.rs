@@ -12,6 +12,7 @@ use search::scoring::ResultScorer;
 use search::scraper::SearchResult;
 use search::scraper::{DuckDuckGoScraper, GoogleScraper, SearchEngine};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BinaryHeap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -28,6 +29,11 @@ struct SearchService {
 #[derive(Clone)]
 struct AppState {
     search_service: Arc<SearchService>,
+}
+
+#[derive(Deserialize)]
+struct AutocompleteParams {
+    query: String,
 }
 
 // Query parameters for search API
@@ -146,6 +152,60 @@ impl SearchService {
 
         final_results
     }
+
+    pub async fn autocomplete(&self, query: &str) -> Vec<String> {
+        let cache_key = format!("autocomplete:{}", query);
+
+        if let Some(cached_results) = self.cache.get(&cache_key).await {
+            return cached_results;
+        }
+
+        let url = format!(
+            "https://www.google.com/complete/search?q={}&cp=4&client=gws-wiz-serp&xssi=t&gs_pcrt=undefined&hl=fr&authuser=0&pq=google%20autocomplete%20search&psi=PT4yZ_aPFZmSkdUP8KizgQo.1731345982335&dpr=1&newwindow=1",
+            query
+        );
+
+        let response = match reqwest::get(&url).await {
+            Ok(resp) => resp,
+            Err(err) => {
+                eprintln!("Request error: {:?}", err);
+                return Vec::new();
+            }
+        };
+
+        let body = match response.text().await {
+            Ok(text) => text,
+            Err(err) => {
+                eprintln!("Response body error: {:?}", err);
+                return Vec::new();
+            }
+        };
+
+        let mut results = Vec::new();
+
+        for line in body.lines() {
+            if line.starts_with("[") {
+                if let Ok(json) = serde_json::from_str::<Value>(line) {
+                    if let Some(suggestions) = json.get(0).and_then(|v| v.as_array()) {
+                        for suggestion in suggestions {
+                            if let Some(suggestion_text) =
+                                suggestion.get(0).and_then(|s| s.as_str())
+                            {
+                                results.push(suggestion_text.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let _ = self
+            .cache
+            .set(&cache_key, &results, Duration::from_secs(300))
+            .await;
+
+        results
+    }
 }
 
 // Rename the handler function to avoid conflict with the `search` crate or module.
@@ -166,6 +226,15 @@ async fn handle_search(
             )
             .await,
     )
+}
+
+async fn handle_autocomplete(
+    State(state): State<AppState>,
+    Query(params): Query<AutocompleteParams>,
+) -> AppJson<Vec<String>> {
+    let search_service = state.search_service.clone();
+
+    AppJson(search_service.autocomplete(&params.query).await)
 }
 
 #[tokio::main]
@@ -191,8 +260,9 @@ async fn main() {
 
     let router = Router::new()
         .route("/api/search", get(handle_search))
-        .layer(CorsLayer::permissive()) // Pour le développement
-        .fallback_service(ServeDir::new("dist")); // Servir les fichiers statiques
+        .route("/api/autocomplete", get(handle_autocomplete))
+        .layer(CorsLayer::permissive())
+        .fallback_service(ServeDir::new("dist"));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
