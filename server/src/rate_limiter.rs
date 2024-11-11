@@ -19,7 +19,7 @@ impl RateLimiter {
                 limiters.insert(
                         "Google".to_string(),
                         Arc::new(Governor::new(
-                                Quota::per_second(NonZeroU32::new(2).unwrap()),
+                                Quota::per_second(NonZeroU32::new(5).unwrap()),
                                 InMemoryState::default(),
                                 DefaultClock::default(),
                         )),
@@ -27,7 +27,7 @@ impl RateLimiter {
                 limiters.insert(
                         "DuckDuckGo".to_string(),
                         Arc::new(Governor::new(
-                                Quota::per_second(NonZeroU32::new(3).unwrap()),
+                                Quota::per_second(NonZeroU32::new(5).unwrap()),
                                 InMemoryState::default(),
                                 DefaultClock::default(),
                         )),

@@ -76,6 +76,7 @@ impl SearchService {
             SearchMetrics::record_cache_hit();
             return cached_results;
         }
+
         SearchMetrics::record_cache_miss();
 
         let mut futures = FuturesUnordered::new();
@@ -132,10 +133,10 @@ impl SearchService {
             heap.push(result);
         }
 
-        let final_results: Vec<_> = heap.into_sorted_vec();
+        let mut final_results: Vec<_> = heap.into_sorted_vec();
 
         // Remove duplicates
-        let final_results = ResultScorer::remove_duplicates(final_results);
+        final_results = ResultScorer::remove_duplicates(final_results);
 
         // Cache results
         let _ = self

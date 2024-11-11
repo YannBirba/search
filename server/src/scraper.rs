@@ -18,7 +18,6 @@ pub struct SearchResult {
     pub snippet: String,
     pub source: String,
     pub score: f64,
-    pub engine: String,
     pub favicon_url: Option<String>,
     pub site_name: Option<String>,
     pub breadcrumbs: Vec<Breadcrumb>,
@@ -26,7 +25,7 @@ pub struct SearchResult {
 
 impl PartialOrd for SearchResult {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.score.partial_cmp(&other.score)
+        Some(self.cmp(other))
     }
 }
 
@@ -40,7 +39,12 @@ impl Eq for SearchResult {}
 
 impl Ord for SearchResult {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.score.partial_cmp(&other.score).unwrap()
+        other
+            .score
+            .partial_cmp(&self.score)
+            .unwrap()
+            .then_with(|| self.title.cmp(&other.title))
+            .then_with(|| self.link.cmp(&other.link))
     }
 
     fn max(self, other: Self) -> Self
@@ -197,12 +201,18 @@ impl GoogleScraper {
             .select(&breadcrumbs_selector)
             .next()
             .map(|cite| {
+                let mut url_accumulator = String::new();
                 cite.text()
                     .collect::<String>()
                     .split('›')
-                    .map(|part| Breadcrumb {
-                        text: part.trim().to_string(),
-                        url: None,
+                    .map(|part| {
+                        url_accumulator.push_str(part.trim());
+                        let breadcrumb = Breadcrumb {
+                            text: part.trim().to_string(),
+                            url: Some(url_accumulator.clone()),
+                        };
+                        url_accumulator.push('/');
+                        breadcrumb
                     })
                     .collect()
             })
@@ -284,7 +294,6 @@ impl SearchEngine for GoogleScraper {
                     snippet,
                     source: self.name().to_string(),
                     score: 0.0,
-                    engine: self.name().to_string(),
                     favicon_url,
                     site_name,
                     breadcrumbs,
@@ -325,13 +334,13 @@ impl DuckDuckGoScraper {
         let url = result
             .select(&Selector::parse(".result__url").unwrap())
             .next()
-            .map(|url| url.text().collect::<String>())?;
+            .map(|url| url.text().collect::<String>().trim().to_string())?;
 
         // DuckDuckGo n'affiche pas directement les favicons, on utilise donc un service tiers
         Some(format!("https://www.google.com/s2/favicons?domain={}", url))
     }
 
-    fn extract_site_info(&self, result: &scraper::ElementRef) -> (Option<String>, Vec<Breadcrumb>) {
+    fn extract_site_info(&self, result: &scraper::ElementRef) -> Vec<Breadcrumb> {
         let url_selector = Selector::parse(".result__url").unwrap();
 
         let url_text = result
@@ -339,23 +348,26 @@ impl DuckDuckGoScraper {
             .next()
             .map(|url| url.text().collect::<String>());
 
-        let site_name = url_text
-            .clone()
-            .map(|url| url.split('/').next().unwrap_or_default().to_string());
-
         let breadcrumbs = url_text
             .map(|url| {
+                let mut url_accumulator = String::new();
                 url.split('/')
                     .filter(|part| !part.is_empty())
-                    .map(|part| Breadcrumb {
-                        text: part.to_string(),
-                        url: None,
+                    .map(|part| {
+                        if !url_accumulator.ends_with('/') && !url_accumulator.is_empty() {
+                            url_accumulator.push('/');
+                        }
+                        url_accumulator.push_str(part.trim());
+                        Breadcrumb {
+                            text: part.to_string().trim().to_string(),
+                            url: Some(url_accumulator.clone()),
+                        }
                     })
                     .collect()
             })
-            .unwrap();
+            .unwrap_or_else(|| vec![]);
 
-        (site_name, breadcrumbs)
+        breadcrumbs
     }
 }
 
@@ -416,20 +428,19 @@ impl SearchEngine for DuckDuckGoScraper {
                     .unwrap_or_default();
 
                 let favicon_url = self.extract_favicon(&result);
-                let (site_name, breadcrumbs) = self.extract_site_info(&result);
+                let breadcrumbs = self.extract_site_info(&result);
 
                 Some(SearchResult {
-                    title,
+                    title: title.trim().to_string(),
                     link: format!(
                         "https://{}",
                         link.trim_start_matches(|c: char| !c.is_alphanumeric())
                     ),
-                    snippet,
+                    snippet: snippet.trim().to_string(),
                     source: self.name().to_string(),
                     score: 0.0,
-                    engine: self.name().to_string(),
                     favicon_url,
-                    site_name,
+                    site_name: None,
                     breadcrumbs,
                 })
             })
