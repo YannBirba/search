@@ -4,6 +4,7 @@ use rand::seq::SliceRandom;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use serde_json::Value;
 
 #[derive(Debug, Serialize, Clone, Deserialize)]
 pub struct Breadcrumb {
@@ -21,6 +22,33 @@ pub struct SearchResult {
     pub favicon_url: Option<String>,
     pub site_name: Option<String>,
     pub breadcrumbs: Vec<Breadcrumb>,
+}
+
+#[derive(Debug, Serialize, Clone, Deserialize)]
+pub struct QuickAnswer {
+    pub answer_type: String,
+    #[serde(flatten)]
+    pub data: Value,
+    pub source: String,
+}
+
+#[derive(Debug, Serialize, Clone, Deserialize)]
+pub struct Definition {
+    pub term: String,
+    pub definition: String,
+}
+
+impl QuickAnswer {
+    pub fn new_definition(term: String, definition: String, source: Option<String>) -> Self {
+        Self {
+            answer_type: "definition".to_string(),
+            data: serde_json::to_value(Definition {
+                term,
+                definition,
+            }).unwrap(),
+            source: source.unwrap_or_default(),
+        }
+    }
 }
 
 impl PartialOrd for SearchResult {
@@ -137,6 +165,10 @@ pub trait SearchEngine: Send + Sync {
     }
 
     fn parse_results(&self, html: &str) -> Vec<SearchResult>;
+
+    async fn quick_answer(&self, query: &str) -> Result<Option<QuickAnswer>, SearchError> {
+        Ok(None)
+    }
 }
 
 pub struct GoogleScraper {
@@ -220,6 +252,28 @@ impl GoogleScraper {
 
         (site_name, breadcrumbs)
     }
+
+    async fn extract_quick_answer(&self, query: &str) -> Result<Option<QuickAnswer>, SearchError> {
+        let url = format!("{}?q={}", self.base_url(), query);
+        let html = self.fetch_html(&url).await?;
+        let document = Html::parse_document(&html);
+
+        let definition_selector = Selector::parse("div.TzHB6b.j8lBAb.p7kDMc.cLjAic.LMRCfc").unwrap();
+        let term_selector = Selector::parse("div.RES9jf.xWMiCc.JgzqYd span").unwrap();
+
+        if let (Some(definition), Some(term)) = (
+            document.select(&definition_selector).next(),
+            document.select(&term_selector).next(),
+        ) {
+            return Ok(Some(QuickAnswer::new_definition(
+                term.text().collect::<String>().trim().to_string(),
+                definition.text().collect::<String>().trim().to_string(),
+                Some("Google".to_string()),
+            )));
+        }
+
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -300,6 +354,10 @@ impl SearchEngine for GoogleScraper {
                 })
             })
             .collect()
+    }
+
+    async fn quick_answer(&self, query: &str) -> Result<Option<QuickAnswer>, SearchError> {
+        self.extract_quick_answer(query).await
     }
 }
 

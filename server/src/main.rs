@@ -11,6 +11,7 @@ use search::rate_limiter::RateLimiter;
 use search::scoring::ResultScorer;
 use search::scraper::SearchResult;
 use search::scraper::{DuckDuckGoScraper, GoogleScraper, SearchEngine};
+use search::scraper::QuickAnswer;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BinaryHeap;
@@ -19,6 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
+use time_library::Timestamp;
 
 struct SearchService {
     engines: Vec<Box<dyn SearchEngine>>,
@@ -44,6 +46,12 @@ struct SearchParams {
     date_range: Option<String>,
     region: Option<String>,
     language: Option<String>,
+}
+
+// Nouveau paramètre pour les quick answers
+#[derive(Deserialize)]
+struct QuickAnswerParams {
+    query: String,
 }
 
 impl SearchService {
@@ -206,6 +214,32 @@ impl SearchService {
 
         results
     }
+
+    pub async fn quick_answers(&self, query: &str) -> Vec<QuickAnswer> {
+        let cache_key = format!("quick_answers:{}", query);
+
+        // Check cache first
+        if let Some(cached_result) = self.cache.get(&cache_key).await {
+            SearchMetrics::record_cache_hit();
+            return cached_result;
+        }
+
+        SearchMetrics::record_cache_miss();
+
+        let mut answers = Vec::new();
+
+        for engine in &self.engines {
+            if !self.rate_limiter.check_rate_limit(engine.name()).await {
+                continue;
+            }
+
+            if let Ok(Some(answer)) = engine.quick_answer(query).await {
+                answers.push(answer);
+            }
+        }
+
+        answers
+    }
 }
 
 // Rename the handler function to avoid conflict with the `search` crate or module.
@@ -237,6 +271,15 @@ async fn handle_autocomplete(
     AppJson(search_service.autocomplete(&params.query).await)
 }
 
+// Handler pour les quick answers
+async fn handle_quick_answers(
+    State(state): State<AppState>,
+    Query(params): Query<QuickAnswerParams>,
+) -> AppJson<Vec<QuickAnswer>> {
+    let search_service = state.search_service.clone();
+    AppJson(search_service.quick_answers(&params.query).await)
+}
+
 #[tokio::main]
 async fn main() {
     // Initialize Redis cache
@@ -260,6 +303,7 @@ async fn main() {
 
     let router = Router::new()
         .route("/api/search", get(handle_search))
+        .route("/api/quick-answers", get(handle_quick_answers))
         .route("/api/autocomplete", get(handle_autocomplete))
         .layer(CorsLayer::permissive())
         .fallback_service(ServeDir::new("dist"));

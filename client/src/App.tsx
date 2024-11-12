@@ -1,15 +1,28 @@
 import { useQuery } from "@tanstack/react-query";
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState, Suspense } from "react";
 
 const apiUrl = import.meta.env.VITE_APP_API_URL;
 if (!apiUrl) {
 	throw new Error("VITE_APP_API_URL is not set");
 }
 
-const fetchApi = async (search: string, page: number) => {
-	const response = await fetch(
-		`${apiUrl}/api/search?query=${search}&page=${page}`,
-	);
+const fetchApi = async (
+	search: string,
+	page: number,
+	dateRange?: string,
+	region?: string,
+	language?: string,
+) => {
+	const params = new URLSearchParams({
+		query: search,
+		page: page.toString(),
+	});
+
+	if (dateRange) params.append("date_range", dateRange);
+	if (region) params.append("region", region);
+	if (language) params.append("language", language);
+
+	const response = await fetch(`${apiUrl}/api/search?${params.toString()}`);
 	return response.json() as Promise<
 		Array<{
 			title: string;
@@ -27,51 +40,117 @@ const fetchApi = async (search: string, page: number) => {
 	>;
 };
 
+const fetchAutocomplete = async (search: string) => {
+	const response = await fetch(`${apiUrl}/api/autocomplete?query=${search}`);
+	return response.json() as Promise<string[]>;
+};
+
+const fetchQuickAnswers = async (search: string) => {
+	const response = await fetch(`${apiUrl}/api/quick-answers?query=${search}`);
+	return response.json() as Promise<
+		ReadonlyArray<{
+			answer_type: string;
+			term: string;
+			definition: string;
+			source: string;
+		}>
+	>;
+};
+
 const useUrl = () => {
 	const [page, setStatePage] = useState(1);
 	const [search, setStateSearch] = useState("");
+	const [dateRange, setStateDate] = useState("");
+	const [region, setStateRegion] = useState("");
+	const [language, setStateLanguage] = useState("");
 
 	useEffect(() => {
 		const urlParams = new URLSearchParams(window.location.search);
 		const page = urlParams.get("page");
 		const search = urlParams.get("search");
-		if (page) {
-			setStatePage(Number.parseInt(page));
-		}
-		if (search) {
-			setStateSearch(search);
-		}
+		const date = urlParams.get("date_range");
+		const region = urlParams.get("region");
+		const language = urlParams.get("language");
+
+		if (page) setStatePage(Number.parseInt(page));
+		if (search) setStateSearch(search);
+		if (date) setStateDate(date);
+		if (region) setStateRegion(region);
+		if (language) setStateLanguage(language);
 	}, []);
+
+	const updateUrl = (updates: Record<string, string>) => {
+		const urlParams = new URLSearchParams(window.location.search);
+		for (const key of urlParams.keys()) {
+			if (!(key in updates)) {
+				urlParams.delete(key);
+			}
+		}
+		window.history.pushState({}, "", `?${urlParams.toString()}`);
+	};
 
 	const setPage = (newPage: number) => {
 		setStatePage(newPage);
-		const urlParams = new URLSearchParams(window.location.search);
-		urlParams.set("page", newPage.toString());
-		urlParams.set("search", search);
-		window.history.pushState({}, "", `?${urlParams.toString()}`);
+		updateUrl({ page: newPage.toString(), search });
 	};
+
 	const setSearch = (newSearch: string) => {
 		setStateSearch(newSearch);
 		const urlParams = new URLSearchParams(window.location.search);
-		urlParams.set("page", page.toString());
-		urlParams.set("search", newSearch);
+
+		if (newSearch === "") {
+			urlParams.delete("search");
+			urlParams.delete("page");
+		} else {
+			urlParams.set("search", newSearch);
+			urlParams.set("page", page.toString());
+		}
+
 		window.history.pushState({}, "", `?${urlParams.toString()}`);
 	};
 
-	return { page, search, setPage, setSearch };
+	const setDateRange = (newDate: string) => {
+		setStateDate(newDate);
+		updateUrl({ date_range: newDate });
+	};
+
+	const setRegion = (newRegion: string) => {
+		setStateRegion(newRegion);
+		updateUrl({ region: newRegion });
+	};
+
+	const setLanguage = (newLanguage: string) => {
+		setStateLanguage(newLanguage);
+		updateUrl({ language: newLanguage });
+	};
+
+	return {
+		page,
+		search,
+		dateRange,
+		region,
+		language,
+		setPage,
+		setSearch,
+		setDateRange,
+		setRegion,
+		setLanguage,
+	};
 };
 
-const useSearchQuery = (search: string, page: number) => {
+const useSearchQuery = (
+	search: string,
+	page: number,
+	dateRange: string,
+	region: string,
+	language: string,
+) => {
 	const [debouncedSearch, setDebouncedSearch] = useState(search);
 
 	useEffect(() => {
-		let handler: ReturnType<typeof setTimeout> | undefined;
-
-		if (search) {
-			handler = setTimeout(() => {
-				setDebouncedSearch(search);
-			}, 300);
-		}
+		const handler = setTimeout(() => {
+			setDebouncedSearch(search);
+		}, 300);
 
 		return () => {
 			if (handler) clearTimeout(handler);
@@ -79,20 +158,201 @@ const useSearchQuery = (search: string, page: number) => {
 	}, [search]);
 
 	return useQuery({
-		queryKey: ["search", page, debouncedSearch],
-		queryFn: () => fetchApi(debouncedSearch, page),
+		queryKey: ["search", page, debouncedSearch, dateRange, region, language],
+		queryFn: () => fetchApi(debouncedSearch, page, dateRange, region, language),
 		enabled: Boolean(debouncedSearch),
 	});
 };
 
+const useAutocompleteQuery = (search: string, enabled: boolean) => {
+	return useQuery({
+		queryKey: ["autocomplete", search],
+		queryFn: () => fetchAutocomplete(search),
+		enabled: enabled && search.length > 2,
+	});
+};
+
+const useQuickAnswersQuery = (search: string) => {
+	return useQuery({
+		queryKey: ["quickAnswers", search],
+		queryFn: () => fetchQuickAnswers(search),
+		enabled: Boolean(search),
+	});
+};
+
+function PopoverConfig({
+	dateRange,
+	setDateRange,
+	region,
+	setRegion,
+	language,
+	setLanguage,
+	isFetching,
+	handlePagination,
+	popoverRef, // Ajout de la ref en prop
+}: {
+	dateRange: string;
+	setDateRange: (value: string) => void;
+	region: string;
+	setRegion: (value: string) => void;
+	language: string;
+	setLanguage: (value: string) => void;
+	page: number;
+	isFetching: boolean;
+	handlePagination: (type: "next" | "prev" | "first") => void;
+	popoverRef: React.RefObject<HTMLDivElement>;
+}) {
+	return (
+		<div
+			ref={popoverRef}
+			style={{
+				position: "absolute",
+				top: "100%",
+				right: "0",
+				marginTop: "10px",
+				backgroundColor: "white",
+				padding: "1rem",
+				borderRadius: "10px",
+				boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+				border: "1px solid rgba(0,0,0,0.1)",
+				zIndex: 10,
+				display: "flex",
+				flexDirection: "column",
+				gap: "1rem",
+				minWidth: "250px",
+			}}
+		>
+			<select
+				value={dateRange}
+				onChange={(e) => setDateRange(e.target.value)}
+				style={{
+					padding: "8px",
+					borderRadius: "5px",
+					border: "1px solid rgba(0,0,0,0.1)",
+				}}
+			>
+				<option value="">Toute date</option>
+				<option value="day">24h</option>
+				<option value="week">Semaine</option>
+				<option value="month">Mois</option>
+				<option value="year">Année</option>
+			</select>
+
+			<select
+				value={region}
+				onChange={(e) => setRegion(e.target.value)}
+				style={{
+					padding: "8px",
+					borderRadius: "5px",
+					border: "1px solid rgba(0,0,0,0.1)",
+				}}
+			>
+				<option value="">Toutes régions</option>
+				<option value="fr">France</option>
+				<option value="us">États-Unis</option>
+				<option value="uk">Royaume-Uni</option>
+			</select>
+
+			<select
+				value={language}
+				onChange={(e) => setLanguage(e.target.value)}
+				style={{
+					padding: "8px",
+					borderRadius: "5px",
+					border: "1px solid rgba(0,0,0,0.1)",
+				}}
+			>
+				<option value="">Toutes langues</option>
+				<option value="fr">Français</option>
+				<option value="en">Anglais</option>
+			</select>
+
+			<div style={{ display: "flex", gap: "0.5rem" }}>
+				<button
+					type="button"
+					disabled={isFetching}
+					onClick={() => handlePagination("prev")}
+					style={{
+						flex: 1,
+						padding: "8px",
+						borderRadius: "5px",
+						border: "1px solid rgba(0,0,0,0.1)",
+						backgroundColor: "white",
+						cursor: "pointer",
+						opacity: isFetching ? 0.5 : 1,
+					}}
+				>
+					Prev
+				</button>
+				<button
+					type="button"
+					disabled={isFetching}
+					onClick={() => handlePagination("next")}
+					style={{
+						flex: 1,
+						padding: "8px",
+						borderRadius: "5px",
+						border: "1px solid rgba(0,0,0,0.1)",
+						backgroundColor: "white",
+						cursor: "pointer",
+						opacity: isFetching ? 0.5 : 1,
+					}}
+				>
+					Next
+				</button>
+				<button
+					type="button"
+					disabled={isFetching}
+					onClick={() => handlePagination("first")}
+					style={{
+						padding: "8px",
+						borderRadius: "5px",
+						border: "1px solid rgba(0,0,0,0.1)",
+						backgroundColor: "white",
+						cursor: "pointer",
+						opacity: isFetching ? 0.5 : 1,
+					}}
+				>
+					First
+				</button>
+			</div>
+		</div>
+	);
+}
+
 function App() {
-	const { page, search, setPage, setSearch } = useUrl();
-	const { data, isFetching, error, isError } = useSearchQuery(search, page);
+	const {
+		page,
+		search,
+		dateRange,
+		region,
+		language,
+		setPage,
+		setSearch,
+		setDateRange,
+		setRegion,
+		setLanguage,
+	} = useUrl();
+
+	const { data, isFetching, error, isError } = useSearchQuery(
+		search,
+		page,
+		dateRange,
+		region,
+		language,
+	);
+	
+	const [showSuggestions, setShowSuggestions] = useState(false);
 	const [lastScrollY, setLastScrollY] = useState(0);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const searchBarRef = useRef<HTMLDivElement>(null);
+	const [showConfig, setShowConfig] = useState(false);
+	const configButtonRef = useRef<HTMLButtonElement>(null);
+	const popoverRef = useRef<HTMLDivElement>(null);
 
-	// Scroll handling for hiding/showing search bar
+	const { data: suggestions = [] } = useAutocompleteQuery(search, showSuggestions);
+	const { data: quickAnswers = [] } = useQuickAnswersQuery(search);
+
 	useEffect(() => {
 		const scrollHandler = () => {
 			const currentScrollY = window.scrollY;
@@ -109,9 +369,10 @@ function App() {
 
 	const handleSearch = (event: React.ChangeEvent<HTMLInputElement>) => {
 		const value = event.target.value;
-		setSearch(value); // Mise à jour immédiate du terme de recherche
+		setSearch(value);
+		setShowSuggestions(true);
 		if (value.length === 0) {
-			setPage(1); // Réinitialiser à la première page si la recherche est vide
+			setPage(1);
 		}
 	};
 
@@ -124,6 +385,24 @@ function App() {
 			setPage(1);
 		}
 	};
+
+	useEffect(() => {
+		const handleClickOutside = (event: MouseEvent) => {
+			if (
+				showConfig &&
+				popoverRef.current &&
+				!popoverRef.current.contains(event.target as Node) &&
+				!configButtonRef.current?.contains(event.target as Node)
+			) {
+				setShowConfig(false);
+			}
+		};
+
+		document.addEventListener("mousedown", handleClickOutside);
+		return () => {
+			document.removeEventListener("mousedown", handleClickOutside);
+		};
+	}, [showConfig]);
 
 	return (
 		<div
@@ -155,49 +434,163 @@ function App() {
 				}}
 				ref={searchBarRef}
 			>
-				<input
-					ref={inputRef}
-					// biome-ignore lint/a11y/noAutofocus: <explanation>
-					autoFocus
-					autoComplete="off"
-					inputMode="search"
-					id="search"
-					name="search"
-					type="search"
-					placeholder="Search for..."
-					value={search}
-					onChange={handleSearch}
-					onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-						if (event.key === "Enter" && event.currentTarget.value) {
-							event.preventDefault();
-							setSearch(search);
-						}
+				<div
+					style={{
+						display: "flex",
+						gap: "1rem",
+						alignItems: "center",
+						width: "100%",
+						position: "relative",
 					}}
-				/>
-				<button
-					type="button"
-					disabled={isFetching}
-					onClick={() => handlePagination("prev")}
 				>
-					Prev
-				</button>
-				<button
-					type="button"
-					disabled={isFetching}
-					onClick={() => handlePagination("next")}
-				>
-					Next
-				</button>
-				<button
-					type="button"
-					disabled={isFetching}
-					onClick={() => handlePagination("first")}
-				>
-					First
-				</button>
+					<div style={{ position: "relative", flex: 1 }}>
+						<input
+							ref={inputRef}
+							autoComplete="off"
+							inputMode="search"
+							id="search"
+							name="search"
+							type="search"
+							placeholder="Search for..."
+							value={search}
+							onChange={handleSearch}
+							onFocus={() => setShowSuggestions(true)}
+							onBlur={() => {
+								setTimeout(() => setShowSuggestions(false), 200);
+							}}
+							onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+								if (event.key === "Enter" && event.currentTarget.value) {
+									event.preventDefault();
+									setSearch(search);
+								}
+							}}
+							style={{
+								padding: "8px 16px",
+								borderRadius: "10px",
+								border: "1px solid rgba(0,0,0,0.1)",
+								width: "100%",
+								backgroundColor: "rgba(255,255,255,0.9)",
+								backdropFilter: "blur(40px)",
+							}}
+						/>
+						{showSuggestions && (
+							<Suspense fallback={<div>Loading suggestions...</div>}>
+								{suggestions.length > 0 && (
+									<ul
+										style={{
+											position: "absolute",
+											borderRadius: "10px",
+											boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+											margin: "4px 0",
+											padding: "8px 0",
+											zIndex: 2,
+											display: "flex",
+											flexDirection: "column",
+											width: "100%",
+										}}
+									>
+										{suggestions.map((suggestion) => (
+											<li
+												// biome-ignore lint/security/noDangerouslySetInnerHtml: <explanation>
+												dangerouslySetInnerHTML={{ __html: suggestion }}
+												key={suggestion}
+												onClick={() => {
+													const cleanSuggestion = suggestion.replace(
+														/<[^>]*>?/gm,
+														"",
+													);
+													setSearch(cleanSuggestion);
+													setShowSuggestions(false);
+												}}
+												onKeyDown={(event: KeyboardEvent<HTMLLIElement>) => {
+													if (event.key === "Enter") {
+														const cleanSuggestion = suggestion.replace(
+															/<[^>]*>?/gm,
+															"",
+														);
+														setSearch(cleanSuggestion);
+													}
+												}}
+												style={{
+													padding: "8px 16px",
+													cursor: "pointer",
+													backgroundColor: "rgba(255,255,255,0.9)",
+													borderRadius: "10px",
+													transition: "background-color 0.2s",
+													backdropFilter: "blur(40px)",
+												}}
+											/>
+										))}
+									</ul>
+								)}
+							</Suspense>
+						)}
+					</div>
+
+					<button
+						ref={configButtonRef}
+						type="button"
+						onClick={() => setShowConfig(!showConfig)}
+						style={{
+							padding: "8px",
+							borderRadius: "5px",
+							border: "1px solid rgba(0,0,0,0.1)",
+							backgroundColor: "white",
+							cursor: "pointer",
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "center",
+						}}
+					>
+						⚙️
+					</button>
+
+					{showConfig && (
+						<PopoverConfig
+							dateRange={dateRange}
+							setDateRange={setDateRange}
+							region={region}
+							setRegion={setRegion}
+							language={language}
+							setLanguage={setLanguage}
+							page={page}
+							isFetching={isFetching}
+							handlePagination={handlePagination}
+							popoverRef={popoverRef}
+						/>
+					)}
+				</div>
 			</div>
 
 			<div>
+				<Suspense fallback={<div>Loading answers...</div>}>
+					{quickAnswers.length > 0 && (
+						<div>
+							{quickAnswers.map((quickAnswer) => (
+								<div
+									key={
+										quickAnswer.term + quickAnswer.definition + quickAnswer.source
+									}
+									style={{
+										margin: "1rem 0",
+										padding: "1rem",
+										backgroundColor: "rgba(255,255,255,0.8)",
+										borderRadius: "10px",
+										border: "1px solid rgba(0,0,0,0.1)",
+									}}
+								>
+									<h3>{quickAnswer.term}</h3>
+									<p>{quickAnswer.definition}</p>
+									{quickAnswer.source && (
+										<p style={{ fontSize: "0.8rem", marginTop: "0.5rem" }}>
+											Source: {quickAnswer.source}
+										</p>
+									)}
+								</div>
+							))}
+						</div>
+					)}
+				</Suspense>
 				{isFetching && (
 					<p
 						style={{
