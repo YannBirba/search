@@ -1,5 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { type KeyboardEvent, useEffect, useRef, useState, Suspense } from "react";
+import {
+	type KeyboardEvent,
+	Suspense,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 
 const apiUrl = import.meta.env.VITE_APP_API_URL;
 if (!apiUrl) {
@@ -341,7 +347,7 @@ function App() {
 		region,
 		language,
 	);
-	
+
 	const [showSuggestions, setShowSuggestions] = useState(false);
 	const [lastScrollY, setLastScrollY] = useState(0);
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -349,8 +355,12 @@ function App() {
 	const [showConfig, setShowConfig] = useState(false);
 	const configButtonRef = useRef<HTMLButtonElement>(null);
 	const popoverRef = useRef<HTMLDivElement>(null);
+	const suggestionsRef = useRef<HTMLUListElement>(null);
 
-	const { data: suggestions = [] } = useAutocompleteQuery(search, showSuggestions);
+	const { data: suggestions = [] } = useAutocompleteQuery(
+		search,
+		showSuggestions,
+	);
 	const { data: quickAnswers = [] } = useQuickAnswersQuery(search);
 
 	useEffect(() => {
@@ -398,11 +408,33 @@ function App() {
 			}
 		};
 
+		const handleEscape = (event: KeyboardEventInit) => {
+			if (event.key === "Escape") {
+				setShowConfig(false);
+			}
+		};
+
 		document.addEventListener("mousedown", handleClickOutside);
+		document.addEventListener("keydown", handleEscape);
 		return () => {
 			document.removeEventListener("mousedown", handleClickOutside);
+			document.removeEventListener("keydown", handleEscape);
 		};
 	}, [showConfig]);
+
+	useEffect(() => {
+		const handleClickOutside = (event: MouseEvent) => {
+			if (
+				!inputRef.current?.contains(event.target as Node) &&
+				!suggestionsRef.current?.contains(event.target as Node)
+			) {
+				setShowSuggestions(false);
+			}
+		};
+
+		document.addEventListener("mousedown", handleClickOutside);
+		return () => document.removeEventListener("mousedown", handleClickOutside);
+	}, []);
 
 	return (
 		<div
@@ -455,13 +487,30 @@ function App() {
 							value={search}
 							onChange={handleSearch}
 							onFocus={() => setShowSuggestions(true)}
-							onBlur={() => {
-								setTimeout(() => setShowSuggestions(false), 200);
-							}}
 							onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
 								if (event.key === "Enter" && event.currentTarget.value) {
 									event.preventDefault();
 									setSearch(search);
+									setShowSuggestions(false);
+									event.currentTarget.blur();
+								}
+
+								if (event.key === "Escape") {
+									event.preventDefault();
+									event.currentTarget.blur();
+									setShowSuggestions(false);
+								}
+								if (showSuggestions && event.key === "ArrowDown") {
+									event.preventDefault();
+									const suggestionsElement =
+										document.getElementById("suggestions");
+									if (suggestionsElement) {
+										const firstSuggestion =
+											suggestionsElement.querySelector("li");
+										if (firstSuggestion) {
+											firstSuggestion.focus();
+										}
+									}
 								}
 							}}
 							style={{
@@ -477,6 +526,9 @@ function App() {
 							<Suspense fallback={<div>Loading suggestions...</div>}>
 								{suggestions.length > 0 && (
 									<ul
+										ref={suggestionsRef}
+										id="suggestions"
+										role="listbox"
 										style={{
 											position: "absolute",
 											borderRadius: "10px",
@@ -487,10 +539,14 @@ function App() {
 											display: "flex",
 											flexDirection: "column",
 											width: "100%",
+											backgroundColor: "white",
+											listStyle: "none",
 										}}
 									>
-										{suggestions.map((suggestion) => (
+										{suggestions.map((suggestion, index) => (
 											<li
+												role="option"
+												tabIndex={0} // Changé de -1 à 0
 												// biome-ignore lint/security/noDangerouslySetInnerHtml: <explanation>
 												dangerouslySetInnerHTML={{ __html: suggestion }}
 												key={suggestion}
@@ -509,15 +565,34 @@ function App() {
 															"",
 														);
 														setSearch(cleanSuggestion);
+														setShowSuggestions(false);
+													} else if (
+														event.key === "ArrowDown" &&
+														index < suggestions.length - 1
+													) {
+														event.preventDefault();
+														const nextSibling = event.currentTarget
+															.nextElementSibling as HTMLLIElement;
+														nextSibling?.focus();
+													} else if (event.key === "ArrowUp") {
+														event.preventDefault();
+														if (index === 0) {
+															inputRef.current?.focus();
+														} else {
+															const prevSibling = event.currentTarget
+																.previousElementSibling as HTMLLIElement;
+															prevSibling?.focus();
+														}
+													} else if (event.key === "Escape") {
+														event.preventDefault();
+														inputRef.current?.focus();
+														setShowSuggestions(false);
 													}
 												}}
 												style={{
 													padding: "8px 16px",
 													cursor: "pointer",
-													backgroundColor: "rgba(255,255,255,0.9)",
-													borderRadius: "10px",
-													transition: "background-color 0.2s",
-													backdropFilter: "blur(40px)",
+													backgroundColor: "white",
 												}}
 											/>
 										))}
@@ -569,7 +644,9 @@ function App() {
 							{quickAnswers.map((quickAnswer) => (
 								<div
 									key={
-										quickAnswer.term + quickAnswer.definition + quickAnswer.source
+										quickAnswer.term +
+										quickAnswer.definition +
+										quickAnswer.source
 									}
 									style={{
 										margin: "1rem 0",

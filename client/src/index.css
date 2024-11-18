@@ -113,3 +113,7 @@ body {
 	user-select: none;
 	-webkit-user-drag: none;
 }
+
+li:focus-visible{
+	background-color: #e8e8e8 !important;
+}
