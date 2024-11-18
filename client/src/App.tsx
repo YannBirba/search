@@ -210,6 +210,7 @@ function PopoverConfig({
 }) {
 	return (
 		<div
+			id="config"
 			ref={popoverRef}
 			style={{
 				position: "absolute",
@@ -226,6 +227,7 @@ function PopoverConfig({
 				flexDirection: "column",
 				gap: "1rem",
 				minWidth: "250px",
+				pointerEvents: "auto",
 			}}
 		>
 			<select
@@ -475,6 +477,7 @@ function App() {
 					border: "1px solid rgba(0,0,0,0.1)",
 					boxShadow: "0 0 10px rgba(0,0,0,0.1)",
 					zIndex: 1,
+					transition: "transform 0.3s",
 				}}
 				ref={searchBarRef}
 			>

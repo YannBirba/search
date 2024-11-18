@@ -119,6 +119,29 @@ body {
 	background-color: #e8e8e8 !important;
 }
 
-body:has(#suggestions[aria-expanded="true"]) {
+body:has(#suggestions[aria-expanded="true"], #config) {
 	overflow: hidden;
+	pointer-events: none;
+}
+
+/* PWA */
+
+*,
+*::before,
+*::after {
+	touch-action: manipulation;
+	-webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+	padding: env(safe-area-inset-top) env(safe-area-inset-right)
+		env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+@media (display-mode: standalone) {
+	html,
+	body {
+		overscroll-behavior: none;
+	}
 }
