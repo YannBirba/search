@@ -355,7 +355,7 @@ function App() {
 	const [showConfig, setShowConfig] = useState(false);
 	const configButtonRef = useRef<HTMLButtonElement>(null);
 	const popoverRef = useRef<HTMLDivElement>(null);
-	const suggestionsRef = useRef<HTMLUListElement>(null);
+	const suggestionsRef = useRef<HTMLDivElement>(null);
 
 	const { data: suggestions = [] } = useAutocompleteQuery(
 		search,
@@ -436,6 +436,18 @@ function App() {
 		return () => document.removeEventListener("mousedown", handleClickOutside);
 	}, []);
 
+	const setSelectedSuggestion = (suggestion: string) => {
+		const cleanSuggestion = suggestion.replace(/<[^>]*>?/gm, "");
+		const cleanSearch = search.replace(/<[^>]*>?/gm, "");
+		return cleanSuggestion === cleanSearch;
+	};
+
+	const setSuggestionTabIndex = (suggestion: string) => {
+		const cleanSuggestion = suggestion.replace(/<[^>]*>?/gm, "");
+		const cleanSearch = search.replace(/<[^>]*>?/gm, "");
+		return cleanSuggestion === cleanSearch ? 0 : -1;
+	};
+
 	return (
 		<div
 			style={{
@@ -505,8 +517,9 @@ function App() {
 									const suggestionsElement =
 										document.getElementById("suggestions");
 									if (suggestionsElement) {
-										const firstSuggestion =
-											suggestionsElement.querySelector("li");
+										const firstSuggestion = suggestionsElement.querySelector(
+											".suggestion",
+										) as HTMLDivElement | null;
 										if (firstSuggestion) {
 											firstSuggestion.focus();
 										}
@@ -525,28 +538,35 @@ function App() {
 						{showSuggestions && (
 							<Suspense fallback={<div>Loading suggestions...</div>}>
 								{suggestions.length > 0 && (
-									<ul
+									<div
+										aria-labelledby="search"
+										aria-activedescendant="suggestions"
+										aria-expanded={showSuggestions}
+										tabIndex={0}
 										ref={suggestionsRef}
 										id="suggestions"
+										// biome-ignore lint/a11y/useSemanticElements: <explanation>
 										role="listbox"
 										style={{
 											position: "absolute",
 											borderRadius: "10px",
 											boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
 											margin: "4px 0",
-											padding: "8px 0",
 											zIndex: 2,
 											display: "flex",
 											flexDirection: "column",
 											width: "100%",
 											backgroundColor: "white",
 											listStyle: "none",
+											overflow: "hidden",
 										}}
 									>
 										{suggestions.map((suggestion, index) => (
-											<li
+											<div
+												className="suggestion"
 												role="option"
-												tabIndex={0} // Changé de -1 à 0
+												aria-selected={setSelectedSuggestion(suggestion)}
+												tabIndex={setSuggestionTabIndex(suggestion)}
 												// biome-ignore lint/security/noDangerouslySetInnerHtml: <explanation>
 												dangerouslySetInnerHTML={{ __html: suggestion }}
 												key={suggestion}
@@ -558,7 +578,7 @@ function App() {
 													setSearch(cleanSuggestion);
 													setShowSuggestions(false);
 												}}
-												onKeyDown={(event: KeyboardEvent<HTMLLIElement>) => {
+												onKeyDown={(event) => {
 													if (event.key === "Enter") {
 														const cleanSuggestion = suggestion.replace(
 															/<[^>]*>?/gm,
@@ -573,6 +593,14 @@ function App() {
 														event.preventDefault();
 														const nextSibling = event.currentTarget
 															.nextElementSibling as HTMLLIElement;
+														const suggestions =
+															document.querySelectorAll(".suggestion");
+														for (const suggestion of suggestions) {
+															suggestion.setAttribute("aria-selected", "false");
+															suggestion.setAttribute("tabIndex", "-1");
+														}
+														nextSibling?.setAttribute("aria-selected", "true");
+														nextSibling?.setAttribute("tabIndex", "0");
 														nextSibling?.focus();
 													} else if (event.key === "ArrowUp") {
 														event.preventDefault();
@@ -582,6 +610,20 @@ function App() {
 															const prevSibling = event.currentTarget
 																.previousElementSibling as HTMLLIElement;
 															prevSibling?.focus();
+															const suggestions =
+																document.querySelectorAll(".suggestion");
+															for (const suggestion of suggestions) {
+																suggestion.setAttribute(
+																	"aria-selected",
+																	"false",
+																);
+																suggestion.setAttribute("tabIndex", "-1");
+															}
+															prevSibling?.setAttribute(
+																"aria-selected",
+																"true",
+															);
+															prevSibling?.setAttribute("tabIndex", "0");
 														}
 													} else if (event.key === "Escape") {
 														event.preventDefault();
@@ -596,7 +638,7 @@ function App() {
 												}}
 											/>
 										))}
-									</ul>
+									</div>
 								)}
 							</Suspense>
 						)}
@@ -838,8 +880,7 @@ function App() {
 										}}
 										title={item.source}
 									>
-										{/* i */}
-										{item.source}
+										i
 									</p>
 								</a>
 							</li>

@@ -114,6 +114,11 @@ body {
 	-webkit-user-drag: none;
 }
 
-li:focus-visible{
+.suggestion:focus-visible {
+	outline: none;
 	background-color: #e8e8e8 !important;
+}
+
+body:has(#suggestions[aria-expanded="true"]) {
+	overflow: hidden;
 }
