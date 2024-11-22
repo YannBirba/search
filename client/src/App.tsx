@@ -6,6 +6,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import PWABadge from "./PWABadge";
 
 const apiUrl = import.meta.env.VITE_APP_API_URL;
 if (!apiUrl) {
@@ -438,6 +439,21 @@ function App() {
 		return () => document.removeEventListener("mousedown", handleClickOutside);
 	}, []);
 
+	useEffect(() => {
+		const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+			const focusedResult = document.activeElement?.tagName === "A";
+			if (
+				focusedResult &&
+				(event.key === "ArrowDown" || event.key === "ArrowUp")
+			) {
+				event.preventDefault();
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+		return () => document.removeEventListener("keydown", handleKeyDown);
+	}, []);
+
 	const setSelectedSuggestion = (suggestion: string) => {
 		const cleanSuggestion = suggestion.replace(/<[^>]*>?/gm, "");
 		const cleanSearch = search.replace(/<[^>]*>?/gm, "");
@@ -501,7 +517,6 @@ function App() {
 							placeholder="Search for..."
 							value={search}
 							onChange={handleSearch}
-							onFocus={() => setShowSuggestions(true)}
 							onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
 								if (event.key === "Enter" && event.currentTarget.value) {
 									event.preventDefault();
@@ -509,22 +524,33 @@ function App() {
 									setShowSuggestions(false);
 									event.currentTarget.blur();
 								}
-
 								if (event.key === "Escape") {
 									event.preventDefault();
-									event.currentTarget.blur();
 									setShowSuggestions(false);
 								}
-								if (showSuggestions && event.key === "ArrowDown") {
+								if (event.key === "ArrowDown") {
 									event.preventDefault();
-									const suggestionsElement =
-										document.getElementById("suggestions");
-									if (suggestionsElement) {
-										const firstSuggestion = suggestionsElement.querySelector(
-											".suggestion",
-										) as HTMLDivElement | null;
-										if (firstSuggestion) {
-											firstSuggestion.focus();
+									if (showSuggestions) {
+										const suggestionsElement =
+											document.getElementById("suggestions");
+										if (suggestionsElement) {
+											const firstSuggestion = suggestionsElement.querySelector(
+												".suggestion",
+											) as HTMLDivElement | null;
+											if (firstSuggestion) {
+												firstSuggestion.focus();
+											}
+										}
+									} else {
+										const firstResult = document.querySelector("a");
+										console.log(firstResult);
+										if (firstResult) {
+											firstResult.focus();
+											firstResult.scrollIntoView({
+												behavior: "smooth",
+												block: "center",
+												inline: "center",
+											});
 										}
 									}
 								}
@@ -685,7 +711,7 @@ function App() {
 			<div>
 				<Suspense fallback={<div>Loading answers...</div>}>
 					{quickAnswers.length > 0 && (
-						<div>
+						<div style={{ maxWidth: "100%", width: "100%" }}>
 							{quickAnswers.map((quickAnswer) => (
 								<div
 									key={
@@ -694,17 +720,36 @@ function App() {
 										quickAnswer.source
 									}
 									style={{
-										margin: "1rem 0",
 										padding: "1rem",
 										backgroundColor: "rgba(255,255,255,0.8)",
 										borderRadius: "10px",
 										border: "1px solid rgba(0,0,0,0.1)",
+										width: "100%",
+										maxWidth: "100%",
+										marginBlock: "1rem",
+										wordBreak: "break-word",
 									}}
 								>
-									<h3>{quickAnswer.term}</h3>
-									<p>{quickAnswer.definition}</p>
+									<h3 style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+										{quickAnswer.term}
+									</h3>
+									<div
+										style={{
+											overflow: "hidden",
+											wordWrap: "break-word",
+										}}
+										// biome-ignore lint/security/noDangerouslySetInnerHtml: <explanation>
+										dangerouslySetInnerHTML={{ __html: quickAnswer.definition }}
+									/>
 									{quickAnswer.source && (
-										<p style={{ fontSize: "0.8rem", marginTop: "0.5rem" }}>
+										<p
+											style={{
+												fontSize: "0.8rem",
+												marginTop: "0.5rem",
+												overflow: "hidden",
+												textOverflow: "ellipsis",
+											}}
+										>
 											Source: {quickAnswer.source}
 										</p>
 									)}
@@ -769,6 +814,29 @@ function App() {
 									href={item.link.trim()}
 									// target="_blank"
 									// rel="noreferrer"
+									onKeyDown={(event) => {
+										if (event.key === "Escape") {
+											event.currentTarget.blur();
+										}
+										if (event.key === "ArrowDown") {
+											const nextLiA =
+												event.currentTarget.parentElement?.nextElementSibling?.querySelector(
+													"a",
+												);
+											nextLiA?.focus();
+										}
+										if (event.key === "ArrowUp") {
+											const prevLiA =
+												event.currentTarget.parentElement?.previousElementSibling?.querySelector(
+													"a",
+												);
+											if (prevLiA) {
+												prevLiA.focus();
+											} else {
+												inputRef.current?.focus();
+											}
+										}
+									}}
 								>
 									<div
 										style={{
@@ -891,6 +959,7 @@ function App() {
 					</ul>
 				)}
 			</div>
+			<PWABadge />
 		</div>
 	);
 }
