@@ -13,7 +13,7 @@ COPY client/ .
 RUN pnpm build
 
 # Build stage for backend
-FROM rust:1.76-slim AS backend
+FROM rust:1.82-slim AS backend
 WORKDIR /app
 
 # Install dependencies
