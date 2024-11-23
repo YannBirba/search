@@ -1,5 +1,5 @@
 # Build stage for frontend
-FROM node:20-alpine AS frontend
+FROM node:22-alpine AS frontend
 WORKDIR /app/client
 
 # Install pnpm
@@ -13,7 +13,7 @@ COPY client/ .
 RUN pnpm build
 
 # Build stage for backend
-FROM rust:1.76-slim AS backend
+FROM rust:1.82-slim AS backend
 WORKDIR /app
 
 # Install dependencies
