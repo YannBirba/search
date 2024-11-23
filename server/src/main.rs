@@ -20,7 +20,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
-use time_library::Timestamp;
 
 struct SearchService {
     engines: Vec<Box<dyn SearchEngine>>,
@@ -295,7 +294,10 @@ async fn main() {
     };
 
     // Clear cache
-    cache.flush().await.unwrap();
+    match cache.flush().await {
+        Ok(_) => (),
+        Err(e) => eprintln!("Failed to clear cache: {}", e),
+    }
 
     // Initialize SearchService and wrap it in AppState
     let search_service = Arc::new(SearchService::new(cache));
@@ -309,10 +311,17 @@ async fn main() {
         .fallback_service(ServeDir::new("dist"));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    axum::serve(listener, router.with_state(app_state).into_make_service())
-        .await
-        .unwrap();
+    let listener = match tokio::net::TcpListener::bind(&addr).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            eprintln!("Failed to bind to port 3000: {}", e);
+            return;
+        }
+    };
+    match axum::serve(listener, router.with_state(app_state).into_make_service()).await {
+        Ok(_) => println!("Server running on http://localhost:3000"),
+        Err(e) => eprintln!("Failed to start server: {}", e)
+    };
 
     println!("Server running on http://localhost:3000");
 }
